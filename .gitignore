@@ -1,0 +1,46 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# Data files (large HDF5 datasets - download separately)
+data/*.hdf5
+data/.cache/
+
+# Model checkpoints (train your own or download separately)
+checkpoints/
+checkpoints_from_modal/
+robomimic_checkpoints/
+robomimic_checkpoints_from_modal/
+
+# Evaluation outputs (generated during evaluation)
+eval_results/
+eval_results_*/
+eval_results_modal
+eval_videos/
+eval_videos_*/
+
+# Debug/experiment output files
+overfit_*.txt
+*.log
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS files
+.DS_Store
+
+# Robomimic submodule trained models
+robomimic/diffusion_policy_trained_models/
+robomimic/
