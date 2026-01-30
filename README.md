@@ -14,11 +14,23 @@ Evaluation results on robosuite manipulation tasks:
 | Lift | 75% | 33.16 | 193 | 20 |
 | Square | 70% | 32.57 | 212 | 20 |
 
+### Evaluation Videos
+
+Successful rollouts from evaluation:
+
+#### PickPlaceCan
+
+#### Lift
+![Lift](eval_videos/dit_lift/episode_0.mp4)
+
+#### Square 
+
+
 Evaluation videos are saved to `eval_videos/` when running evaluation with `--save-videos`.
 
 ## Architecture
 
-This implementation uses a **Diffusion Transformer (DiT)** architecture inspired by [NVIDIA GROOT](https://nvidia.github.io/GROOT/). Key features:
+This implementation uses a **Diffusion Transformer (DiT)** architecture inspired by [NVIDIA GROOT](https://github.com/NVIDIA/Isaac-GR00T). Key features:
 
 - **DDPM** diffusion with cosine noise schedule
 - **Cross-attention conditioning** on observations (all layers)

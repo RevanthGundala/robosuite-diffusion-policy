@@ -45,3 +45,10 @@ overfit_*.txt
 # Robomimic submodule trained models
 robomimic/diffusion_policy_trained_models/
 robomimic/
+
+
+train_robomimic_modal.py
+explore_data.ipynb
+benchmark.py
+EXPERIMENTS.md
+
