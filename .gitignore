@@ -27,6 +27,7 @@ eval_videos/
 eval_videos_*/
 
 # Debug/experiment output files
+debug_*.py
 overfit_*.txt
 *.log
 
