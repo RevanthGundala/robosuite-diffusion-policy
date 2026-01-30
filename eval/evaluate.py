@@ -23,18 +23,6 @@ class PolicyEvaluator:
         obs_horizon: int = 4,
         debug: bool = False,
     ):
-        """
-        Initialize evaluator.
-        
-        Args:
-            env: Environment wrapper
-            policy: Trained DiffusionPolicy
-            normalizer: Dict with obs_mean, obs_std, action_mean, action_std
-            action_horizon: Number of actions to execute from each prediction
-            pred_horizon: Full prediction horizon
-            obs_horizon: Number of observation frames for context
-            debug: Enable debug logging for action tracing
-        """
         self.env = env
         self.policy = policy
         self.normalizer = normalizer
@@ -45,26 +33,16 @@ class PolicyEvaluator:
         self._debug_printed_normalizer = False
         
     def normalize_obs(self, obs: np.ndarray) -> np.ndarray:
-        """Normalize observation using stored statistics.
-        
-        Clamps normalized values to [-5, 5] to handle dimensions that had
-        near-zero variance during training but vary at evaluation.
-        """
+        """Normalize observation using stored statistics."""
         if self.normalizer is not None:
-            # Use minimum std of 0.1 to avoid division by tiny values
-            std = np.maximum(self.normalizer['obs_std'], 0.1)
+            std = np.maximum(self.normalizer['obs_std'], 0.01)
             normalized = (obs - self.normalizer['obs_mean']) / std
-            # Clamp to reasonable range
             return np.clip(normalized, -5.0, 5.0)
         return obs
     
     def unnormalize_action(self, action: np.ndarray) -> np.ndarray:
-        """Unnormalize action from [-1, 1] back to original scale.
-        
-        Uses min-max denormalization matching the dataset normalization.
-        """
+        """Unnormalize action from [-1, 1] back to original scale."""
         if self.normalizer is not None:
-            # Min-max denormalization: action = (normalized + 1) / 2 * (max - min) + min
             range_val = self.normalizer['action_max'] - self.normalizer['action_min'] + 1e-6
             return (action + 1.0) / 2.0 * range_val + self.normalizer['action_min']
         return action
@@ -137,23 +115,9 @@ class PolicyEvaluator:
         render: bool = False,
         save_video: bool = False,
     ) -> Tuple[bool, float, int, List[np.ndarray]]:
-        """
-        Evaluate a single episode.
-        
-        Args:
-            max_steps: Maximum steps per episode
-            render: Whether to render
-            save_video: Whether to save video frames
-            
-        Returns:
-            success: Whether task was successful
-            total_reward: Cumulative reward
-            steps: Number of steps taken
-            frames: Video frames if save_video=True
-        """
+        """Evaluate a single episode."""
         obs = self.env.reset()
         
-        # Log normalizer stats once
         self._debug_log_normalizer()
         
         total_reward = 0.0
@@ -161,43 +125,31 @@ class PolicyEvaluator:
         success = False
         frames = []
         replan_count = 0
-        
-        # Action queue for temporal action chunking
         action_queue = []
-        
-        # Observation history for obs_horizon > 1
         obs_history = []
         
         while steps < max_steps:
-            # Get observation
             obs_state = obs["state"]
             obs_normalized = self.normalize_obs(obs_state)
             
-            # Maintain observation history
             obs_history.append(obs_normalized)
             if len(obs_history) > self.obs_horizon:
                 obs_history.pop(0)
             
-            # Pad history if we don't have enough observations yet
             while len(obs_history) < self.obs_horizon:
                 obs_history.insert(0, obs_history[0])
             
-            # Stack observations: (obs_horizon, obs_dim)
             obs_stacked = np.stack(obs_history, axis=0)
-            obs_tensor = torch.FloatTensor(obs_stacked).unsqueeze(0)  # (1, obs_horizon, obs_dim)
+            obs_tensor = torch.FloatTensor(obs_stacked).unsqueeze(0)
             
-            # Get new actions if queue is empty
             if len(action_queue) == 0:
                 replan_count += 1
-                # Sample action sequence from policy
                 with torch.no_grad():
-                    action_seq = self.policy.sample(obs_tensor)  # (1, T, action_dim)
-                    action_seq_raw = action_seq[0].cpu().numpy()  # (T, action_dim)
+                    action_seq = self.policy.sample(obs_tensor)
+                    action_seq_raw = action_seq[0].cpu().numpy()
                 
-                # Unnormalize and add to queue
                 action_seq_unnorm = self.unnormalize_action(action_seq_raw)
                 
-                # Debug logging
                 self._debug_log_replan(
                     step=steps,
                     replan_num=replan_count,
@@ -208,11 +160,9 @@ class PolicyEvaluator:
                     queue_len=min(self.action_horizon, len(action_seq_unnorm)),
                 )
                 
-                # Only use first action_horizon actions
                 for i in range(min(self.action_horizon, len(action_seq_unnorm))):
                     action_queue.append(action_seq_unnorm[i])
             
-            # Execute next action
             action = action_queue.pop(0)
             obs, reward, done, info = self.env.step(action)
             
@@ -225,7 +175,6 @@ class PolicyEvaluator:
             if render:
                 self.env.render()
             
-            # Mark success and break early
             if info.get("success", False):
                 success = True
                 break
@@ -243,20 +192,7 @@ class PolicyEvaluator:
         video_dir: str = "eval_videos",
         n_videos: int = 5,
     ) -> Tuple[Dict, List[Dict]]:
-        """
-        Evaluate policy over multiple episodes.
-        
-        Args:
-            n_episodes: Number of episodes to evaluate
-            render: Whether to render
-            save_videos: Whether to save videos
-            video_dir: Directory to save videos
-            n_videos: Number of videos to save
-            
-        Returns:
-            metrics: Dict with success_rate, avg_reward, avg_steps
-            results: List of per-episode results
-        """
+        """Evaluate policy over multiple episodes."""
         results = []
         successes = []
         
@@ -280,15 +216,12 @@ class PolicyEvaluator:
             })
             successes.append(success)
             
-            # Print live results
             success_rate = np.mean(successes) * 100
             print(f"  Ep {ep+1}: {'✓' if success else '✗'} | Reward: {reward:.2f} | Steps: {steps} | Success Rate: {success_rate:.1f}%")
             
-            # Save video immediately
             if save_video and frames:
                 self._save_video(frames, video_path / f"episode_{ep}.mp4")
         
-        # Compute metrics
         rewards = [r["reward"] for r in results]
         steps_list = [r["steps"] for r in results]
         
@@ -307,7 +240,6 @@ class PolicyEvaluator:
         """Save frames as video."""
         try:
             import imageio
-            # Use 60 fps for smoother playback
             imageio.mimsave(str(path), frames, fps=60)
             print(f"  → Saved video: {path}")
         except Exception as e:
@@ -326,7 +258,6 @@ class PolicyEvaluator:
     
     def save_metrics(self, metrics: Dict, path: str):
         """Save metrics to JSON file."""
-        # Convert numpy types to Python types for JSON serialization
         metrics_json = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
                        for k, v in metrics.items()}
         
@@ -336,13 +267,7 @@ class PolicyEvaluator:
 
 
 def visualize_results(results: List[Dict], save_path: str = None):
-    """
-    Visualize evaluation results.
-    
-    Args:
-        results: List of per-episode results
-        save_path: Path to save figure
-    """
+    """Visualize evaluation results."""
     try:
         import matplotlib.pyplot as plt
         
@@ -351,14 +276,12 @@ def visualize_results(results: List[Dict], save_path: str = None):
         
         fig, axes = plt.subplots(2, 1, figsize=(10, 6))
         
-        # Success/Failure per episode (binary)
         colors = ['green' if s else 'red' for s in successes]
         axes[0].bar(episodes, [1] * len(episodes), color=colors, edgecolor='black', linewidth=0.5)
         axes[0].set_xlabel("Episode")
         axes[0].set_yticks([])
         axes[0].set_title("Episode Outcomes (green=success, red=failure)")
         
-        # Cumulative success rate
         cumulative_success = np.cumsum(successes) / (np.arange(len(successes)) + 1)
         axes[1].plot(episodes, cumulative_success, 'b-', linewidth=2, marker='o', markersize=4)
         axes[1].axhline(y=np.mean(successes), color='r', linestyle='--', label=f'Final: {np.mean(successes):.1%}')

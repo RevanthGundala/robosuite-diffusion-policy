@@ -57,7 +57,6 @@ def train_on_modal(
     
     import torch
     from torch.utils.data import DataLoader, random_split
-    # Import directly to avoid __init__.py which imports collect.py
     from data.dataset import RobomimicDataset
     from policy import DiffusionPolicy
     
@@ -66,8 +65,6 @@ def train_on_modal(
     print(f"Device: {torch.cuda.get_device_name(0)}")
     print("=" * 50)
     
-    # Load dataset based on task
-    # Use converted HDF5 files which have proper robomimic obs format
     data_path = f"/data/{task}_converted.hdf5"
     dataset = RobomimicDataset(
         data_path,
@@ -76,7 +73,6 @@ def train_on_modal(
         normalize=True,
     )
     
-    # Split into train/val (90/10)
     val_size = int(0.1 * len(dataset))
     train_size = len(dataset) - val_size
     train_dataset, val_dataset = random_split(
@@ -101,7 +97,6 @@ def train_on_modal(
         pin_memory=True,
     )
     
-    # Create policy
     policy = DiffusionPolicy(
         hidden_dim=hidden_dim,
         action_dim=dataset.action_dim,
@@ -126,18 +121,15 @@ def train_on_modal(
     print(f"  Train samples: {train_size}, Val samples: {val_size}")
     print()
     
-    # Checkpoint path for best model
     checkpoint_dir = Path("/data/checkpoints")
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / f"policy_{task}_best.pt"
     normalizer_path = checkpoint_dir / f"normalizer_{task}.npz"
     
-    # Save normalizer BEFORE training so it's available even if training interrupted
     dataset.save_normalizer(str(normalizer_path))
     volume.commit()
     print(f"Saved normalizer (will be used for evaluation)")
     
-    # Train with validation and best checkpoint saving
     policy.train(
         train_dataloader, 
         epochs=epochs, 
@@ -146,9 +138,7 @@ def train_on_modal(
         checkpoint_path=str(checkpoint_path),
     )
     
-    # Also save the final model
     policy.save(checkpoint_dir / f"policy_{task}.pt")
-    # Resave normalizer (in case anything changed)
     dataset.save_normalizer(str(normalizer_path))
     
     volume.commit()
@@ -169,14 +159,12 @@ def main(
     interleave_cross_attn: bool = True,
 ):
     """Local entrypoint for Modal training."""
-    # Default data path based on task - use converted format
     if data_path is None:
         data_path = f"data/{task}_converted.hdf5"
     
     if upload_data:
         print(f"Uploading {data_path} to Modal...")
         with volume.batch_upload() as batch:
-            # Store as task_converted.hdf5 to match the remote path
             batch.put_file(data_path, f"{task}_converted.hdf5")
         print("Data uploaded!")
     

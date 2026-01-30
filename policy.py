@@ -47,24 +47,21 @@ class TransformerBlock(nn.Module):
             n_heads: int,
             dim_head: int,
             hidden_dim: Optional[int] = None,
-            cross_attn_dim: int = None,  # None = self-attention only, not None = has cross-attention
+            cross_attn_dim: int = None,
             max_seq_len: int = 512,
     ):
         super().__init__()
         self.has_cross_attn = cross_attn_dim is not None
         
-        # Positional embedding (applied inside block after norm, before attention)
         self.pos_embed = SinusoidalPositionalEmbedding(embed_dim=hidden_dim, max_seq_length=max_seq_len)
         
-        # Self-attention
         self.norm1 = AdaLayerNorm(emb_dim=hidden_dim)
         self.attn1 = Attention(
             query_dim=hidden_dim,
             heads=n_heads,
             dim_head=dim_head,
-        )  # Self-attention - no cross_attention_dim
+        )
         
-        # Cross-attention (only if cross_attn_dim provided)
         if self.has_cross_attn:
             self.norm2 = AdaLayerNorm(emb_dim=hidden_dim)
             self.attn2 = Attention(
@@ -74,7 +71,6 @@ class TransformerBlock(nn.Module):
                 cross_attention_dim=cross_attn_dim,
             )
         
-        # FFN
         self.norm3 = AdaLayerNorm(emb_dim=hidden_dim)
         self.ff = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim * 4),
@@ -83,16 +79,13 @@ class TransformerBlock(nn.Module):
         )
     
     def forward(self, x: torch.Tensor, timesteps: torch.Tensor, encoder_hidden_states: torch.Tensor = None):
-        # Self-attention (apply pos_embed to normalized states, residual preserves original x)
         norm_x = self.norm1(x, timesteps)
         norm_x = self.pos_embed(norm_x)
         x = x + self.attn1(norm_x)
         
-        # Cross-attention (only if this layer has it)
         if self.has_cross_attn and encoder_hidden_states is not None:
             x = x + self.attn2(self.norm2(x, timesteps), encoder_hidden_states=encoder_hidden_states)
         
-        # FFN
         x = x + self.ff(self.norm3(x, timesteps))
         return x 
     
@@ -117,19 +110,15 @@ class DiT(nn.Module):
         
         self.action_embed = nn.Linear(action_dim, hidden_dim)
         
-        # Per-timestep observation encoder: encodes each obs frame independently
-        # Input: (B, obs_horizon, obs_dim) -> Output: (B, obs_horizon, hidden_dim)
         self.obs_encoder = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
         
-        # Learned positional embedding for observation timesteps
         self.obs_pos_embed = nn.Embedding(obs_horizon, hidden_dim)
         
-        # Interleaved layers: EVEN layers have cross-attention (0,2,4...), ODD layers self-attn only
-        # Or all layers have cross-attention if interleave_cross_attn=False
+        # EVEN layers have cross-attention, ODD layers self-attn only (unless interleave_cross_attn=False)
         self.layers = nn.ModuleList([
             TransformerBlock(
                 hidden_dim=hidden_dim, 
@@ -140,12 +129,10 @@ class DiT(nn.Module):
             for i in range(n_layers)
         ])
         
-        # AdaLN-Zero output block (from DiT paper)
         self.norm_out = nn.LayerNorm(hidden_dim, elementwise_affine=False)
-        self.proj_out_1 = nn.Linear(hidden_dim, 2 * hidden_dim)  # For shift and scale
-        self.proj_out_2 = nn.Linear(hidden_dim, action_dim)  # Final projection
+        self.proj_out_1 = nn.Linear(hidden_dim, 2 * hidden_dim)
+        self.proj_out_2 = nn.Linear(hidden_dim, action_dim)
         
-        # Print model size
         n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f"DiT initialized: {n_layers} layers, {n_heads} heads, {hidden_dim} dim, {n_params:,} params")
 
@@ -158,29 +145,21 @@ class DiT(nn.Module):
         Returns:
             noise_pred: (B, T, action_dim) - predicted noise
         """
-        # Embed noisy actions
         t_emb = self.timestep_encoder(timestep)
         x = self.action_embed(noisy_action)
         
-        # Handle both single-frame (B, obs_dim) and multi-frame (B, obs_horizon, obs_dim) observations
         if obs.dim() == 2:
-            # Single frame: (B, obs_dim) -> (B, 1, obs_dim)
             obs = obs.unsqueeze(1)
         
-        # Per-timestep encoding: apply MLP to each observation frame independently
-        # (B, obs_horizon, obs_dim) -> (B, obs_horizon, hidden_dim)
         encoder_hidden_states = self.obs_encoder(obs)
         
-        # Add positional embeddings to distinguish observation timesteps
         B, T_obs, _ = encoder_hidden_states.shape
         obs_pos_ids = torch.arange(T_obs, device=obs.device)
         encoder_hidden_states = encoder_hidden_states + self.obs_pos_embed(obs_pos_ids)
         
-        # Pass through transformer layers with timestep and obs conditioning
         for layer in self.layers:
             x = layer(x, t_emb, encoder_hidden_states)
         
-        # AdaLN-Zero output processing (applies timestep conditioning at output)
         shift, scale = self.proj_out_1(F.silu(t_emb)).chunk(2, dim=-1)
         x = self.norm_out(x) * (1 + scale[:, None]) + shift[:, None]
         return self.proj_out_2(x)
@@ -189,8 +168,8 @@ class DiffusionPolicy:
     def __init__(
         self, 
         hidden_dim: int = 512,
-        action_dim: int = 7,  # Panda: 6-DOF arm + 1 gripper
-        obs_dim: int = 32,    # Robosuite proprio + object state (per frame)
+        action_dim: int = 7,
+        obs_dim: int = 32,
         action_horizon: int = 16,
         obs_horizon: int = 1,
         n_layers: int = 16,
@@ -200,7 +179,7 @@ class DiffusionPolicy:
         lr: float = 1e-4,
         warmup_steps: int = 0,
         interleave_cross_attn: bool = True,
-        use_flow_matching: bool = False,  # DDPM works better than Flow Matching
+        use_flow_matching: bool = False,
     ):
         self.device = device if device is not None else get_device()
         self.n_diffusion_steps = n_diffusion_steps
@@ -216,7 +195,6 @@ class DiffusionPolicy:
         self.epochs = epochs
         self.warmup_steps = warmup_steps
         
-        # Initialize model
         self.model = DiT(
             hidden_dim=hidden_dim,
             action_dim=action_dim,
@@ -228,30 +206,24 @@ class DiffusionPolicy:
         ).to(self.device)
         
         if use_flow_matching:
-            # Flow Matching: no scheduler needed, we use simple linear interpolation
-            # Model predicts velocity v = x1 - x0
             print("Using Flow Matching (velocity prediction)")
             self.noise_scheduler = None
         else:
-            # Use DDPMScheduler from diffusers
             print("Using DDPM (noise prediction)")
             self.noise_scheduler = DDPMScheduler(
                 num_train_timesteps=n_diffusion_steps,
-                beta_schedule="squaredcos_cap_v2",  # cosine schedule, better than linear
+                beta_schedule="squaredcos_cap_v2",
                 clip_sample=True,
-                prediction_type="epsilon",  # predict noise
+                prediction_type="epsilon",
             )
     
     def forward_process(self, x0: torch.Tensor, t: torch.Tensor):
         """
         Add noise to clean actions x0 at timestep t.
         
-        For Flow Matching: x_t = (1-t) * x0 + t * noise (linear interpolation)
-        For DDPM: Uses scheduler's add_noise method
-        
         Args:
             x0: (B, T, action_dim) - clean action sequence
-            t: (B,) - timesteps (integer for DDPM, will convert to float for FM)
+            t: (B,) - timesteps
         Returns:
             x_t: (B, T, action_dim) - noisy actions
             target: (B, T, action_dim) - the target (velocity for FM, noise for DDPM)
@@ -259,20 +231,12 @@ class DiffusionPolicy:
         noise = torch.randn_like(x0)
         
         if self.use_flow_matching:
-            # Flow Matching: linear interpolation
-            # t is integer timestep [0, n_diffusion_steps), convert to float [0, 1]
             t_float = t.float() / self.n_diffusion_steps
-            t_float = t_float[:, None, None]  # (B, 1, 1) for broadcasting
-            
-            # x_t = (1 - t) * x0 + t * noise
+            t_float = t_float[:, None, None]
             x_t = (1 - t_float) * x0 + t_float * noise
-            
-            # Target is the velocity: v = noise - x0 (direction from data to noise)
-            # At inference we integrate backwards: x_{t-dt} = x_t - dt * v
             velocity = noise - x0
             return x_t, velocity
         else:
-            # DDPM: Use scheduler's add_noise method
             x_t = self.noise_scheduler.add_noise(x0, noise, t)
             return x_t, noise
     
@@ -292,28 +256,25 @@ class DiffusionPolicy:
         """
         import tqdm
         
-        # Use provided values or fall back to instance values
         epochs = epochs if epochs is not None else self.epochs
         lr = lr if lr is not None else self.lr
         
         self.model.train()
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr)
         
-        # OneCycleLR: warmup + cosine annealing (built-in PyTorch scheduler)
         total_steps = epochs * len(dataloader)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer,
             max_lr=lr,
             total_steps=total_steps,
-            pct_start=0.05,  # 5% warmup
-            anneal_strategy='cos',  # Cosine annealing
-            div_factor=25,  # Initial LR = max_lr / 25
-            final_div_factor=100,  # Final LR = max_lr / 100
+            pct_start=0.05,
+            anneal_strategy='cos',
+            div_factor=25,
+            final_div_factor=100,
         )
         global_step = 0
         print(f"OneCycleLR scheduler: {total_steps} total steps, 5% warmup")
         
-        # Training history
         history = {
             'train_losses': [],
             'val_losses': [],
@@ -321,7 +282,6 @@ class DiffusionPolicy:
         }
 
         for epoch in range(epochs):
-            # Training
             self.model.train()
             epoch_loss = 0.0
             tqdm_loader = tqdm.tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}")
@@ -330,23 +290,16 @@ class DiffusionPolicy:
                 actions = actions.to(self.device)
                 batch_size = actions.shape[0]
                 
-                # Sample random timesteps
                 t = torch.randint(0, self.n_diffusion_steps, (batch_size,), device=self.device)
-                
-                # Add noise to actions (returns velocity target for FM, noise for DDPM)
                 noisy_actions, target = self.forward_process(actions, t)
-                
-                # Predict velocity (FM) or noise (DDPM)
                 pred = self.model(noisy_actions, t, obs)
-                
-                # MSE loss between predicted and target
                 loss = F.mse_loss(pred, target)
                 
                 optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 optimizer.step()
-                scheduler.step()  # Update learning rate
+                scheduler.step()
                 global_step += 1
                 
                 epoch_loss += loss.item()
@@ -355,13 +308,11 @@ class DiffusionPolicy:
             avg_loss = epoch_loss / len(dataloader)
             history['train_losses'].append(avg_loss)
             
-            # Validation
             val_loss = None
             if val_dataloader is not None:
                 val_loss = self._validate(val_dataloader)
                 history['val_losses'].append(val_loss)
                 
-                # Save best checkpoint
                 if val_loss < history['best_val_loss']:
                     history['best_val_loss'] = val_loss
                     if checkpoint_path is not None:
@@ -397,9 +348,6 @@ class DiffusionPolicy:
         """
         Sample actions given observation.
         
-        For Flow Matching: Euler integration from noise to data
-        For DDPM: Standard reverse diffusion process
-        
         Args:
             obs: (B, obs_dim) or (B, obs_horizon, obs_dim) - observation
             n_inference_steps: Number of inference steps (default: n_diffusion_steps)
@@ -413,30 +361,20 @@ class DiffusionPolicy:
         if n_inference_steps is None:
             n_inference_steps = self.n_diffusion_steps
         
-        # Start from pure noise
         x = torch.randn(batch_size, self.action_horizon, self.action_dim, device=self.device)
         
         if self.use_flow_matching:
-            # Flow Matching: Euler integration from noise (t=1) to data (t=0)
-            # x_{t-dt} = x_t - dt * v(x_t, t)
             dt = 1.0 / n_inference_steps
             
             for i in range(n_inference_steps):
-                # Current time: t = 1 - i/n_inference_steps (going from 1 to 0)
                 t = 1.0 - i / n_inference_steps
-                # Convert to integer timestep for model input
                 t_int = int(t * self.n_diffusion_steps)
                 t_batch = torch.full((batch_size,), t_int, device=self.device, dtype=torch.long)
-                
-                # Predict velocity
                 velocity = self.model(x, t_batch, obs)
-                
-                # Euler step: x_{t-dt} = x_t - dt * v
                 x = x - dt * velocity
             
             return x
         else:
-            # DDPM: Standard reverse diffusion
             self.noise_scheduler.set_timesteps(n_inference_steps)
             
             for t in self.noise_scheduler.timesteps:
@@ -447,12 +385,7 @@ class DiffusionPolicy:
             return x
     
     def save(self, path: str):
-        """
-        Save model checkpoint.
-        
-        Args:
-            path: Path to save checkpoint
-        """
+        """Save model checkpoint."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -473,28 +406,17 @@ class DiffusionPolicy:
         }
         
         torch.save(checkpoint, path)
-
         print(f"Saved model to {path}")
     
     @classmethod
     def load(cls, path: str, device: str = None):
-        """
-        Load model from checkpoint.
-        
-        Args:
-            path: Path to checkpoint
-            device: Device to load model to
-            
-        Returns:
-            DiffusionPolicy instance
-        """
+        """Load model from checkpoint."""
         checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         config = checkpoint['config']
         
         if device is None:
             device = get_device()
         
-        # Create policy with saved config (with backwards compatibility)
         policy = cls(
             hidden_dim=config['hidden_dim'],
             action_dim=config['action_dim'],
@@ -504,11 +426,10 @@ class DiffusionPolicy:
             n_layers=config.get('n_layers', 16),
             n_diffusion_steps=config['n_diffusion_steps'],
             interleave_cross_attn=config.get('interleave_cross_attn', True),
-            use_flow_matching=config.get('use_flow_matching', False),  # Default False for old checkpoints
+            use_flow_matching=config.get('use_flow_matching', False),
             device=device,
         )
         
-        # Load model weights
         policy.model.load_state_dict(checkpoint['model_state_dict'])
         
         print(f"Loaded model from {path}")
@@ -540,7 +461,6 @@ class SuperSimpleModel(nn.Module):
         self.action_horizon = action_horizon
         self.action_dim = action_dim
         
-        # Timestep embedding (sinusoidal + MLP)
         self.time_embed = nn.Sequential(
             nn.Embedding(n_timesteps, 128),
             nn.Linear(128, 256),
@@ -548,8 +468,7 @@ class SuperSimpleModel(nn.Module):
             nn.Linear(256, 256),
         )
         
-        # Main network - now includes timestep embedding
-        input_dim = obs_dim + action_dim * action_horizon + 256  # +256 for timestep
+        input_dim = obs_dim + action_dim * action_horizon + 256
         self.net = nn.Sequential(
             nn.Linear(input_dim, 512),
             nn.SiLU(),
@@ -560,11 +479,8 @@ class SuperSimpleModel(nn.Module):
     
     def forward(self, noisy_action: torch.Tensor, timestep: torch.Tensor, obs: torch.Tensor):
         B = obs.shape[0]
-        # Embed timestep
-        t_emb = self.time_embed(timestep)  # (B, 256)
-        # Flatten noisy actions
+        t_emb = self.time_embed(timestep)
         noisy_flat = noisy_action.reshape(B, -1)
-        # Concatenate obs, noisy_actions, and timestep embedding
         x = torch.cat([obs, noisy_flat, t_emb], dim=-1)
         out = self.net(x)
         return out.reshape(B, self.action_horizon, self.action_dim)

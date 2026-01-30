@@ -65,7 +65,6 @@ def evaluate_on_modal(
     import sys
     import os
     
-    # Set environment for headless rendering
     os.environ["MUJOCO_GL"] = "osmesa"
     
     sys.path.insert(0, "/root/diffusion-policy")
@@ -84,12 +83,10 @@ def evaluate_on_modal(
         print(f"Device: {torch.cuda.get_device_name(0)}")
     print("=" * 60)
     
-    # Determine checkpoint path
     checkpoint_dir = Path("/data/checkpoints")
     if checkpoint_name:
         checkpoint_path = checkpoint_dir / checkpoint_name
     else:
-        # Try task-specific best checkpoint first
         checkpoint_path = checkpoint_dir / f"policy_{task}_best.pt"
         if not checkpoint_path.exists():
             checkpoint_path = checkpoint_dir / f"policy_{task}.pt"
@@ -101,10 +98,8 @@ def evaluate_on_modal(
     
     print(f"Checkpoint: {checkpoint_path}")
     
-    # Load policy
     policy = DiffusionPolicy.load(str(checkpoint_path), device="cuda" if torch.cuda.is_available() else "cpu")
     
-    # Load normalizer
     normalizer_path = checkpoint_dir / f"normalizer_{task}.npz"
     if not normalizer_path.exists():
         normalizer_path = checkpoint_dir / "normalizer.npz"
@@ -116,11 +111,9 @@ def evaluate_on_modal(
         print("WARNING: No normalizer found!")
         normalizer = None
     
-    # Create environment
     print(f"\nCreating {task} environment...")
     env = create_env(task=task, use_images=save_videos, render=False)
     
-    # Create evaluator
     evaluator = PolicyEvaluator(
         env=env,
         policy=policy,
@@ -131,7 +124,6 @@ def evaluate_on_modal(
         debug=debug,
     )
     
-    # Evaluate
     print(f"\nRunning {n_episodes} episodes...")
     metrics, results = evaluator.evaluate_n_episodes(
         n_episodes=n_episodes,
@@ -141,14 +133,11 @@ def evaluate_on_modal(
         n_videos=n_videos,
     )
     
-    # Print results
     evaluator.print_metrics(metrics)
     
-    # Save results to volume
     output_dir = Path("/data/eval_results")
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Save metrics
     metrics_json = {k: float(v) if isinstance(v, (np.floating, np.integer)) else v 
                     for k, v in metrics.items()}
     with open(output_dir / f"metrics_{task}.json", "w") as f:

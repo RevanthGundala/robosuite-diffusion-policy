@@ -2,31 +2,23 @@
 
 A PyTorch implementation of [Diffusion Policy](https://diffusion-policy.cs.columbia.edu/) using a Diffusion Transformer (DiT) architecture for robotic manipulation tasks in [robosuite](https://robosuite.ai/).
 
-This implementation achieves **100% success rate** on the PickPlaceCan task and strong performance across multiple robosuite benchmarks.
-
 ## Results
 
-Evaluation results on robosuite manipulation tasks:
+Evaluation results on robosuite manipulation tasks (20 episodes each):
 
-| Task | Success Rate | Avg Reward | Avg Steps | Episodes |
-|------|-------------|------------|-----------|----------|
-| **Can (PickPlaceCan)** | **100%** | 32.88 | 162 | 50 |
-| Lift | 75% | 33.16 | 193 | 20 |
-| Square | 70% | 32.57 | 212 | 20 |
+| Task | Success Rate | Avg Steps | Status |
+|------|-------------|-----------|--------|
+| **Can (PickPlaceCan)** | **100%** | 152 | ✅ Solved |
+| **Lift** | **85%** | 206 | ✅ Solved |
+| **Square (NutAssembly)** | **25%** | 433 | ⚠️ Hard task |
 
-### Evaluation Videos
+### Demo Videos
 
-Successful rollouts from evaluation:
+| Lift (85% Success) | PickPlaceCan (100% Success) | NutAssemblySquare (25% Success) |
+|:------------------:|:---------------------------:|:-------------------------------:|
+| ![Lift](assets/videos/lift_success.gif) | ![Can](assets/videos/can_success.gif) | ![Square](assets/videos/square_success.gif) |
 
-#### PickPlaceCan
-
-#### Lift
-![Lift](eval_videos/dit_lift/episode_0.mp4)
-
-#### Square 
-
-
-Evaluation videos are saved to `eval_videos/` when running evaluation with `--save-videos`.
+*GIFs show successful rollouts from our trained DiT-based Diffusion Policy.*
 
 ## Architecture
 
@@ -47,8 +39,6 @@ This implementation uses a **Diffusion Transformer (DiT)** architecture inspired
 | Observation horizon | 4 frames |
 | Action horizon | 16 steps |
 | Diffusion steps | 100 |
-
-For detailed ablation studies and experiment logs, see [EXPERIMENTS.md](EXPERIMENTS.md).
 
 ## Installation
 

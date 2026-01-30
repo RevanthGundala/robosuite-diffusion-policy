@@ -47,7 +47,6 @@ class EvaluateConfig:
 def train_policy(config: TrainConfig):
     """Train diffusion policy on collected demonstrations."""
     
-    # Run on Modal if --modal flag is set
     if config.modal:
         import subprocess
         print("=" * 50)
@@ -88,7 +87,6 @@ def train_policy(config: TrainConfig):
         normalize=True,
     )
     
-    # 90/10 train/val split
     train_size = int(0.9 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_dataset, val_dataset = random_split(
@@ -114,7 +112,6 @@ def train_policy(config: TrainConfig):
         pin_memory=True,
     )
     
-    # Keep reference to full dataset for normalization stats
     dataset = full_dataset
     
     policy = DiffusionPolicy(
@@ -140,12 +137,10 @@ def train_policy(config: TrainConfig):
     print(f"  Total samples: {len(dataset)}")
     print()
     
-    # Save checkpoint with task-specific name
     checkpoint_dir = Path(config.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_checkpoint_path = checkpoint_dir / f"policy_{config.task}_best.pt"
     
-    # Train with validation
     history = policy.train(
         dataloader, 
         epochs=config.epochs, 
@@ -154,16 +149,13 @@ def train_policy(config: TrainConfig):
         checkpoint_path=best_checkpoint_path
     )
     
-    # Save final checkpoint
     policy.save(checkpoint_dir / f"policy_{config.task}.pt")
     
-    # Print training summary
     if history['val_losses']:
         print(f"\nBest validation loss: {history['best_val_loss']:.6f}")
         print(f"Final train loss: {history['train_losses'][-1]:.6f}")
         print(f"Final val loss: {history['val_losses'][-1]:.6f}")
     
-    # Save normalizer with task-specific name
     dataset.save_normalizer(str(checkpoint_dir / f"normalizer_{config.task}.npz"))
     
     print("\nTraining complete!")
@@ -172,7 +164,6 @@ def train_policy(config: TrainConfig):
 def evaluate_policy(config: EvaluateConfig):
     """Evaluate trained policy."""
     
-    # Run on Modal if --modal flag is set
     if config.modal:
         import subprocess
         print("=" * 50)
@@ -205,10 +196,8 @@ def evaluate_policy(config: EvaluateConfig):
     print(f"Episodes: {config.n_episodes}")
     print("=" * 50)
     
-    # Load policy
     policy = DiffusionPolicy.load(config.checkpoint)
     
-    # Load normalizer - try task-specific first, then generic
     normalizer_path = Path(config.checkpoint).parent / f"normalizer_{config.task}.npz"
     if not normalizer_path.exists():
         normalizer_path = Path(config.checkpoint).parent / "normalizer.npz"
@@ -220,21 +209,18 @@ def evaluate_policy(config: EvaluateConfig):
         print("Warning: No normalizer found, using unnormalized observations")
         normalizer = None
     
-    # Create environment for the specified task
     env = create_env(task=config.task, use_images=config.save_videos, render=config.render)
     
-    # Create evaluator
     evaluator = PolicyEvaluator(
         env=env,
         policy=policy,
         normalizer=normalizer,
         action_horizon=8,
         pred_horizon=16,
-        obs_horizon=4,  # Match training obs_horizon
+        obs_horizon=4,
         debug=config.debug,
     )
     
-    # Evaluate
     metrics, results = evaluator.evaluate_n_episodes(
         n_episodes=config.n_episodes,
         render=config.render,
@@ -243,7 +229,6 @@ def evaluate_policy(config: EvaluateConfig):
         n_videos=config.n_videos,
     )
     
-    # Print and save results
     evaluator.print_metrics(metrics)
     
     output_dir = Path(config.output_dir)

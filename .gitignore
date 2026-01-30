@@ -51,4 +51,5 @@ train_robomimic_modal.py
 explore_data.ipynb
 benchmark.py
 EXPERIMENTS.md
+test_*.py
 
