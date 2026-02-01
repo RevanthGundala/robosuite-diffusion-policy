@@ -10,7 +10,7 @@ Evaluation results on robosuite manipulation tasks (20 episodes each):
 |------|-------------|-----------|--------|
 | **Can (PickPlaceCan)** | **100%** | 152 | ✅ Solved |
 | **Lift** | **85%** | 206 | ✅ Solved |
-| **Square (NutAssembly)** | **25%** | 433 | ⚠️ Hard task |
+| **Square (NutAssembly)** | **40%** | 433 | ⚠️ Not Solved |
 
 ### Demo Videos
 
