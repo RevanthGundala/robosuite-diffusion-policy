@@ -147,10 +147,6 @@ class RobomimicDataset(Dataset):
         self.action_min = all_actions.min(axis=0)
         self.action_max = all_actions.max(axis=0)
         
-        # Keep mean/std for backward compatibility but we won't use them
-        self.action_mean = all_actions.mean(axis=0)
-        self.action_std = all_actions.std(axis=0) + 1e-6
-        
         # Log dimensions with small variance (for debugging)
         small_std_dims = np.where(all_obs.std(axis=0) < 0.1)[0]
         if len(small_std_dims) > 0:
